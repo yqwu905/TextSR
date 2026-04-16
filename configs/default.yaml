@@ -1,0 +1,80 @@
+# TextSR Default Configuration
+# Based on arXiv:2505.23119v1
+
+# --- Model ---
+model:
+  # U-Net
+  base_channels: 32
+  channel_multipliers: [1, 2, 4, 8, 8]
+  num_down_layers: 2          # ResBlocks per encoder level
+  num_up_layers: 3            # ResBlocks per decoder level
+  cross_attn_levels: [3, 4]   # 0-indexed levels where cross-attention is applied
+  time_embed_dim: 128         # Timestep embedding dimension
+  num_heads: 8                # Attention heads in cross-attention
+  dropout: 0.0                # ResBlock dropout
+
+  # Text Encoder (ByT5)
+  text_encoder_name: "google/byt5-base"
+  text_encoder_layers: 2      # Only use first 2 layers
+  text_embed_dim: 1536        # ByT5-Base embedding dimension
+  max_text_length: 256        # Maximum UTF-8 token sequence length
+
+# --- Diffusion ---
+diffusion:
+  num_timesteps: 1000
+  beta_start: 0.0001
+  beta_end: 0.02
+  beta_schedule: "linear"     # "linear" or "cosine"
+  prediction_type: "epsilon"  # Predict noise
+
+# --- Data ---
+data:
+  image_height: 48
+  image_width: 480
+  min_text_height: 16
+  max_text_height: 512
+  num_degradation_copies: 20
+
+  # Degradation parameters (Real-ESRGAN style)
+  degradation:
+    # First degradation
+    blur_kernel_size_range: [7, 21]
+    blur_sigma_range: [0.2, 3.0]
+    downsample_range: [0.5, 1.0]
+    noise_sigma_range: [0, 25]
+    jpeg_quality_range: [30, 95]
+    # Second degradation
+    blur_kernel_size_range_2: [7, 21]
+    blur_sigma_range_2: [0.2, 1.5]
+    downsample_range_2: [0.5, 1.0]
+    noise_sigma_range_2: [0, 20]
+    jpeg_quality_range_2: [30, 95]
+
+# --- Training ---
+training:
+  batch_size: 1024
+  effective_batch_size: 1024    # Use gradient accumulation if batch_size < this
+  learning_rate: 3.0e-4
+  optimizer: "adam"
+  betas: [0.9, 0.999]
+  weight_decay: 0.0
+  max_steps: 500000
+  log_interval: 100
+  save_interval: 5000
+  eval_interval: 5000
+  text_dropout_prob: 0.1        # Probability of dropping text condition (CFG training)
+  mixed_precision: "fp16"
+  gradient_clip: 1.0
+
+# --- Inference ---
+inference:
+  ddim_steps: 5
+  omega: 1.0                    # CFG guidance scale (3.0 for GT, <1.0 for noisy OCR)
+  iterative_ocr_rounds: 1      # R=1 recommended
+  blending_sigma: 3.0          # Gaussian LPF sigma for blending
+
+# --- Paths ---
+paths:
+  output_dir: "./outputs"
+  checkpoint_dir: "./checkpoints"
+  log_dir: "./logs"
