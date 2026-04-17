@@ -219,11 +219,20 @@ class TextZoomDataset(Dataset):
         self.use_ocr_gpu = use_ocr_gpu
         self.split = split
 
-        # Load LMDB readers for each difficulty
+        # Resolve LMDB paths.
+        # Train: data_root/train1, data_root/train2 (flat, no difficulty split)
+        # Test:  data_root/test/easy, data_root/test/medium, data_root/test/hard
+        if split == "train":
+            lmdb_paths = [
+                os.path.join(data_root, "train1"),
+                os.path.join(data_root, "train2"),
+            ]
+        else:
+            lmdb_paths = [os.path.join(data_root, split, d) for d in difficulties]
+
         self.readers: List[LMDBReader] = []
         self.reader_lengths: List[int] = []
-        for diff in difficulties:
-            lmdb_path = os.path.join(data_root, split, diff)
+        for lmdb_path in lmdb_paths:
             if os.path.isdir(lmdb_path):
                 reader = LMDBReader(lmdb_path)
                 self.readers.append(reader)
@@ -247,7 +256,7 @@ class TextZoomDataset(Dataset):
             cache_file = os.path.join(ocr_cache_dir, f"{split}_ocr.json")
             self.ocr_cache = OCRAnnotationCache(cache_file)
 
-        print(f"[TextZoomDataset] {split}: {self.total} samples across {len(self.readers)} difficulty levels")
+        print(f"[TextZoomDataset] {split}: {self.total} samples across {len(self.readers)} LMDB(s)")
 
     def __len__(self):
         return self.total

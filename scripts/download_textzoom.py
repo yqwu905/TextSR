@@ -6,10 +6,8 @@ Dataset is stored in LMDB format with train/test splits.
 
 Expected structure after download:
   data/TextZoom/
-    train/
-      easy/   -> LMDB database
-      medium/ -> LMDB database
-      hard/   -> LMDB database
+    train1/   -> LMDB database
+    train2/   -> LMDB database
     test/
       easy/   -> LMDB database
       medium/ -> LMDB database
@@ -27,16 +25,12 @@ from pathlib import Path
 # Google Drive file IDs for TextZoom
 # Source: https://github.com/WenjiaWang0312/TextZoom
 TEXTZOOM_FILES = {
-    "train_easy":   "1nAKjK9FKNO0BQMKKO77ME9pMBqVLBqfH",
-    "train_medium": "1EomEsX0bzPAizpKv1GkKsxTcj7M2GVzU",
-    "train_hard":   "1JBD0lDRNvYrGHvw0LQ6J1JHE8iX9Q8PQ",
+    "train1":    "1nAKjK9FKNO0BQMKKO77ME9pMBqVLBqfH",
+    "train2":    "1EomEsX0bzPAizpKv1GkKsxTcj7M2GVzU",
     "test_easy":    "16UDnCCMO8j7AkGD5CjHVFcABl3sO4bsV",
     "test_medium":  "1L0A-lIrOWqnkQGQgFaRuhliYdZVHoSKy",
     "test_hard":    "18GBR3BOBGr_dGpP-PYuJpGVRNVEPPXBK",
 }
-
-# Alternative: download the full dataset as single archive
-FULL_DATASET_ID = "1NxoZcO8J9gzxhScg6xRHoqFqrExG1-gA"
 
 
 def download_from_gdrive(file_id: str, output_path: str):
@@ -63,19 +57,20 @@ def download_textzoom(data_root: str, split: str = "all"):
     print("https://github.com/WenjiaWang0312/TextZoom")
     print("=" * 60)
 
-    splits_to_download = []
+    # Build list of (key, out_dir) to download
+    to_download = []
     if split in ("train", "all"):
-        splits_to_download.extend(["train_easy", "train_medium", "train_hard"])
+        to_download.append(("train1", data_root / "train1"))
+        to_download.append(("train2", data_root / "train2"))
     if split in ("test", "all"):
-        splits_to_download.extend(["test_easy", "test_medium", "test_hard"])
+        to_download.append(("test_easy",   data_root / "test" / "easy"))
+        to_download.append(("test_medium", data_root / "test" / "medium"))
+        to_download.append(("test_hard",   data_root / "test" / "hard"))
 
-    for key in splits_to_download:
-        split_name, difficulty = key.split("_")
-        out_dir = data_root / split_name / difficulty
+    for key, out_dir in to_download:
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        lmdb_path = out_dir / "data.mdb"
-        if lmdb_path.exists():
+        if (out_dir / "data.mdb").exists():
             print(f"  [SKIP] {key} already exists at {out_dir}")
             continue
 
@@ -100,19 +95,32 @@ def print_dataset_info(data_root: Path):
     """Print info about the downloaded dataset."""
     import lmdb
     print("\n=== TextZoom Dataset Info ===")
-    for split in ["train", "test"]:
-        for difficulty in ["easy", "medium", "hard"]:
-            lmdb_dir = data_root / split / difficulty
-            if not lmdb_dir.exists():
-                continue
-            try:
-                env = lmdb.open(str(lmdb_dir), readonly=True, lock=False)
-                with env.begin() as txn:
-                    n = txn.stat()["entries"]
-                print(f"  {split}/{difficulty}: {n // 2} samples")  # Each sample has hr+lr keys
-                env.close()
-            except Exception:
-                print(f"  {split}/{difficulty}: (exists but can't read)")
+    # Train: flat train1 / train2
+    for name in ["train1", "train2"]:
+        lmdb_dir = data_root / name
+        if not lmdb_dir.exists():
+            continue
+        try:
+            env = lmdb.open(str(lmdb_dir), readonly=True, lock=False)
+            with env.begin() as txn:
+                n = txn.stat()["entries"]
+            print(f"  {name}: {n // 2} samples")
+            env.close()
+        except Exception:
+            print(f"  {name}: (exists but can't read)")
+    # Test: test/easy, test/medium, test/hard
+    for difficulty in ["easy", "medium", "hard"]:
+        lmdb_dir = data_root / "test" / difficulty
+        if not lmdb_dir.exists():
+            continue
+        try:
+            env = lmdb.open(str(lmdb_dir), readonly=True, lock=False)
+            with env.begin() as txn:
+                n = txn.stat()["entries"]
+            print(f"  test/{difficulty}: {n // 2} samples")
+            env.close()
+        except Exception:
+            print(f"  test/{difficulty}: (exists but can't read)")
 
 
 def manual_download_instructions():
@@ -129,10 +137,8 @@ Manual Download Instructions for TextZoom:
 
 3. After downloading, organize as:
    data/TextZoom/
-     train/
-       easy/    (LMDB files: data.mdb, lock.mdb)
-       medium/  (LMDB files: data.mdb, lock.mdb)
-       hard/    (LMDB files: data.mdb, lock.mdb)
+     train1/  (LMDB files: data.mdb, lock.mdb)
+     train2/  (LMDB files: data.mdb, lock.mdb)
      test/
        easy/    (LMDB files: data.mdb, lock.mdb)
        medium/  (LMDB files: data.mdb, lock.mdb)
@@ -141,8 +147,8 @@ Manual Download Instructions for TextZoom:
 4. Run: python scripts/download_textzoom.py --check
 
 TextZoom Statistics:
-  Train: ~17,367 image pairs (easy/medium/hard splits)
-  Test:  ~3,021 image pairs
+  Train: ~17,367 image pairs across train1 + train2
+  Test:  ~3,021 image pairs (easy/medium/hard)
   LR size: varies, typically 32×128 pixels
   HR size: varies, typically 2× LR resolution
 """)

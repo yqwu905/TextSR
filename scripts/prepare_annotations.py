@@ -43,18 +43,26 @@ def annotate_split(
             annotations = json.load(f)
         print(f"Loaded {len(annotations)} existing annotations from {cache_file}")
 
+    # Train: train1 + train2 (flat LMDB); Test: test/easy, test/medium, test/hard
+    if split == "train":
+        lmdb_paths = [
+            (os.path.join(data_root, "train1"), "train1"),
+            (os.path.join(data_root, "train2"), "train2"),
+        ]
+    else:
+        lmdb_paths = [(os.path.join(data_root, split, d), f"{split}/{d}") for d in difficulties]
+
     global_idx = 0
-    for diff in difficulties:
-        lmdb_path = os.path.join(data_root, split, diff)
+    for lmdb_path, label in lmdb_paths:
         if not os.path.isdir(lmdb_path):
             print(f"[SKIP] {lmdb_path} not found")
             continue
 
         reader = LMDBReader(lmdb_path)
         n = len(reader)
-        print(f"\n--- {split}/{diff}: {n} samples ---")
+        print(f"\n--- {label}: {n} samples ---")
 
-        for local_idx in tqdm(range(n), desc=f"{split}/{diff}"):
+        for local_idx in tqdm(range(n), desc=label):
             key = str(global_idx)
             if key in annotations:
                 global_idx += 1

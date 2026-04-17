@@ -46,14 +46,12 @@ print('Done')
 
 ```
 data/TextZoom/
-  train/
-    easy/     data.mdb  lock.mdb
-    medium/   data.mdb  lock.mdb
-    hard/     data.mdb  lock.mdb
+  train1/   data.mdb  lock.mdb
+  train2/   data.mdb  lock.mdb
   test/
-    easy/     data.mdb  lock.mdb
-    medium/   data.mdb  lock.mdb
-    hard/     data.mdb  lock.mdb
+    easy/   data.mdb  lock.mdb
+    medium/ data.mdb  lock.mdb
+    hard/   data.mdb  lock.mdb
 ```
 
 **自动下载（需访问 Google Drive）**：
@@ -68,7 +66,7 @@ python3 scripts/download_textzoom.py --split all
 python3 scripts/download_textzoom.py --check
 ```
 
-数据统计：训练集约 17,367 对，测试集约 3,021 对；LR 约 32×128，HR 约 64×256（2× SR）。
+数据统计：训练集约 17,367 对（train1 + train2），测试集约 3,021 对（easy/medium/hard）；LR 约 32×128，HR 约 64×256（2× SR）。
 
 ### 3. Real-ESRGAN 权重（可选，约 67MB）
 
