@@ -154,6 +154,86 @@ def load_checkpoint(path: str, model: nn.Module, optimizer=None, scheduler=None,
 # Training loop
 # ---------------------------------------------------------------------------
 
+@torch.no_grad()
+def log_val_images(
+    raw_model: nn.Module,
+    writer,
+    global_step: int,
+    cfg,
+    device: torch.device,
+    n_images: int = 9,
+):
+    """Inference on fixed test images; log LR / SR / HR side-by-side to TensorBoard."""
+    import cv2
+    from data.dataset import LMDBReader, pil_to_numpy, numpy_to_tensor
+
+    test_dir = Path(cfg.data.data_root) / "test" / "easy"
+    if not (test_dir / "data.mdb").exists():
+        return
+
+    try:
+        reader = LMDBReader(str(test_dir))
+        n_total = len(reader)
+        if n_total == 0:
+            return
+
+        # Fixed evenly-spaced indices for consistent comparison across epochs
+        n_pick = min(n_images, n_total)
+        indices = [int(i * n_total / n_pick) for i in range(n_pick)]
+
+        sr_factor = cfg.data.sr_factor
+        vis_h, vis_w = 64, 256  # display size for all thumbnails
+
+        raw_model.eval()
+        grid_rows = []  # each element: (3, vis_h, vis_w) tensor in [0, 1]
+
+        for idx in indices:
+            sample = reader.get(idx)
+            lr_pil = sample.get("lr")
+            hr_pil = sample.get("hr")
+            if lr_pil is None:
+                continue
+
+            lr_np = pil_to_numpy(lr_pil)
+            H, W = lr_np.shape[:2]
+            hr_h, hr_w = H * sr_factor, W * sr_factor
+
+            lr_up_np = cv2.resize(lr_np, (hr_w, hr_h), interpolation=cv2.INTER_CUBIC)
+            lr_up_t = numpy_to_tensor(lr_up_np).unsqueeze(0).to(device)  # (1,3,H,W) [-1,1]
+
+            sr_t = raw_model.super_resolve(
+                lr_up_t, texts=None, cfg_weight=1.0,
+                ddim_steps=cfg.model.diffusion.ddim_steps,
+            )  # (1,3,H,W) [-1,1]
+
+            def to_vis(t):
+                """(1,3,H,W) or (3,H,W) in [-1,1]  →  (3,vis_h,vis_w) in [0,1]."""
+                if t.dim() == 4:
+                    t = t[0]
+                arr = ((t.permute(1, 2, 0).cpu().numpy() + 1) * 127.5).clip(0, 255).astype("uint8")
+                arr = cv2.resize(arr, (vis_w, vis_h), interpolation=cv2.INTER_LINEAR)
+                return torch.from_numpy(arr).permute(2, 0, 1).float() / 255.0
+
+            hr_vis = to_vis(
+                numpy_to_tensor(
+                    cv2.resize(pil_to_numpy(hr_pil), (hr_w, hr_h), interpolation=cv2.INTER_LINEAR)
+                ).unsqueeze(0).to(device)
+            ) if hr_pil is not None else torch.zeros(3, vis_h, vis_w)
+
+            grid_rows.extend([to_vis(lr_up_t), to_vis(sr_t), hr_vis])
+
+        if not grid_rows:
+            return
+
+        # grid_rows: N*3 tensors of (3, vis_h, vis_w) — order: lr1, sr1, hr1, lr2, …
+        writer.add_images("val/lr_sr_hr", torch.stack(grid_rows), global_step)
+
+    except Exception as e:
+        print(f"[WARNING] val image logging failed: {e}")
+    finally:
+        raw_model.train()
+
+
 def train_epoch(
     model,
     dataloader,
@@ -400,8 +480,13 @@ def main():
                 ema_path = os.path.join(cfg.training.checkpoint_dir, f"epoch_{epoch:04d}_ema.pt")
                 ema.apply(raw_model)
                 torch.save(raw_model.state_dict(), ema_path)
-                ema.restore(raw_model)
                 print(f"  [EMA] Saved EMA weights: {ema_path}")
+
+                # Log 9 val images to TensorBoard using EMA weights
+                if writer is not None:
+                    log_val_images(raw_model, writer, global_step, cfg, device)
+
+                ema.restore(raw_model)
 
     if writer is not None:
         writer.close()
