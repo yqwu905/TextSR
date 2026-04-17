@@ -1,0 +1,64 @@
+# TextSR Flow Matching Config (TextZoom dataset)
+# Replaces DDPM/DDIM with Conditional Flow Matching (CFM).
+# Key difference: no noise schedule, model predicts velocity v = x_1 - eps.
+
+data:
+  dataset: textzoom
+  data_root: ./data/TextZoom
+  ocr_annotation_dir: ./data/ocr_annotations
+  train_hr_size: [48, 480]
+  sr_factor: 2
+  max_text_len: 64
+  ocr_backend: paddleocr
+  num_workers: 8
+
+model:
+  # ByT5 text encoder
+  byt5_model: google/byt5-base
+  byt5_num_layers: 2
+  text_embed_dim: 1536
+  max_text_len: 64
+
+  # U-Net velocity predictor (same architecture as DDPM version)
+  unet:
+    in_channels: 6                    # 3 (x_t) + 3 (LR upsampled)
+    out_channels: 3                   # predicted velocity
+    base_channels: 32
+    channel_mult: [1, 2, 4, 8, 8]
+    num_res_blocks: 2
+    attention_levels: [3, 4]
+    cross_attention_dim: 256
+    dropout: 0.0
+    time_embed_dim: 256
+
+  # Flow Matching (replaces diffusion block)
+  flow_matching:
+    num_steps: 10                     # Euler ODE steps at inference
+
+training:
+  batch_size: 16
+  learning_rate: 3.0e-4
+  num_epochs: 100
+  warmup_steps: 1000
+  grad_clip: 1.0
+  ema_decay: 0.9999
+  log_interval: 100
+  save_interval: 5
+  checkpoint_dir: ./checkpoints_fm
+  output_dir: ./outputs_fm
+  precision: bf16
+
+  # Classifier-free guidance training
+  text_drop_prob: 0.1
+  image_drop_prob: 0.0
+
+inference:
+  num_steps: 10                       # Euler ODE steps
+  cfg_weight: 2.0
+  iterative_ocr_rounds: 1
+  output_dir: ./outputs_fm/inference
+
+evaluation:
+  textzoom_test_dir: ./data/TextZoom/test
+  output_dir: ./outputs_fm/eval
+  recognizers: [paddleocr]

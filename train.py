@@ -203,7 +203,7 @@ def log_val_images(
 
             sr_t = raw_model.super_resolve(
                 lr_up_t, texts=None, cfg_weight=1.0,
-                ddim_steps=cfg.model.diffusion.ddim_steps,
+                num_steps=cfg.model.flow_matching.num_steps,
             )  # (1,3,H,W) [-1,1]
 
             def to_vis(t):
@@ -317,7 +317,7 @@ def train_epoch(
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="configs/textzoom_small.yaml")
+    parser.add_argument("--config", default="configs/textzoom_fm.yaml")
     parser.add_argument("--resume", default=None, help="Path to checkpoint to resume from")
     parser.add_argument("--wandb", action="store_true", help="Use WandB logging")
     args = parser.parse_args()

@@ -60,7 +60,7 @@ def process_single_image(
     output_path: str,
     sr_factor: int = 2,
     cfg_weight: float = 2.0,
-    ddim_steps: int = 5,
+    num_steps: int = 10,
     iter_rounds: int = 1,
     use_ocr_gpu: bool = False,
     device: torch.device = None,
@@ -74,7 +74,7 @@ def process_single_image(
         output_path:       Path to save SR output
         sr_factor:         Upscaling factor
         cfg_weight:        ω - text guidance scale (0.0=no text, 2.0=paper default)
-        ddim_steps:        Number of DDIM denoising steps
+        num_steps:         Number of Euler ODE steps
         iter_rounds:       R - iterative OCR refinement rounds
         blend_with_esrgan: Blend high-freq (TextSR) with low-freq (Real-ESRGAN)
     """
@@ -98,7 +98,7 @@ def process_single_image(
         ocr_fn=ocr_fn,
         sr_factor=sr_factor,
         cfg_weight=cfg_weight,
-        ddim_steps=ddim_steps,
+        num_steps=num_steps,
         num_rounds=iter_rounds,
         device=device,
     )
@@ -172,7 +172,7 @@ def process_directory(
     output_dir: str,
     sr_factor: int = 2,
     cfg_weight: float = 2.0,
-    ddim_steps: int = 5,
+    num_steps: int = 10,
     iter_rounds: int = 1,
     use_ocr_gpu: bool = False,
     device: torch.device = None,
@@ -191,7 +191,7 @@ def process_directory(
             output_dir=output_dir,
             sr_factor=sr_factor,
             cfg_weight=cfg_weight,
-            ddim_steps=ddim_steps,
+            num_steps=num_steps,
             iter_rounds=iter_rounds,
             use_ocr_gpu=use_ocr_gpu,
             device=device,
@@ -208,7 +208,7 @@ def process_directory(
         return
 
     print(f"Processing {len(image_files)} images from {input_dir}")
-    print(f"  SR factor: {sr_factor}×, CFG weight: {cfg_weight}, DDIM steps: {ddim_steps}, Iter rounds: {iter_rounds}")
+    print(f"  SR factor: {sr_factor}×, CFG weight: {cfg_weight}, ODE steps: {num_steps}, Iter rounds: {iter_rounds}")
 
     for img_path in tqdm(image_files, desc="Super-resolving"):
         out_path = output_dir / img_path.name
@@ -218,7 +218,7 @@ def process_directory(
             output_path=str(out_path),
             sr_factor=sr_factor,
             cfg_weight=cfg_weight,
-            ddim_steps=ddim_steps,
+            num_steps=num_steps,
             iter_rounds=iter_rounds,
             use_ocr_gpu=use_ocr_gpu,
             device=device,
@@ -231,7 +231,7 @@ def _process_lmdb(
     output_dir: Path,
     sr_factor: int,
     cfg_weight: float,
-    ddim_steps: int,
+    num_steps: int,
     iter_rounds: int,
     use_ocr_gpu: bool,
     device: torch.device,
@@ -242,7 +242,7 @@ def _process_lmdb(
     reader = LMDBReader(str(lmdb_dir))
     n = len(reader)
     print(f"Processing {n} samples from LMDB: {lmdb_dir}")
-    print(f"  SR factor: {sr_factor}×, CFG weight: {cfg_weight}, DDIM steps: {ddim_steps}, Iter rounds: {iter_rounds}")
+    print(f"  SR factor: {sr_factor}×, CFG weight: {cfg_weight}, ODE steps: {num_steps}, Iter rounds: {iter_rounds}")
 
     def ocr_fn(img_np: np.ndarray) -> str:
         return ocr_image(img_np, use_gpu=use_ocr_gpu)
@@ -260,7 +260,7 @@ def _process_lmdb(
             ocr_fn=ocr_fn,
             sr_factor=sr_factor,
             cfg_weight=cfg_weight,
-            ddim_steps=ddim_steps,
+            num_steps=num_steps,
             num_rounds=iter_rounds,
             device=device,
         )
@@ -276,7 +276,7 @@ def batch_inference_from_lmdb(
     cfg,
     device: torch.device,
     cfg_weight: float = 2.0,
-    ddim_steps: int = 5,
+    num_steps: int = 10,
     iter_rounds: int = 1,
 ):
     """
@@ -317,11 +317,11 @@ def batch_inference_from_lmdb(
         with torch.no_grad():
             if iter_rounds == 0:
                 sr_tensor = model.super_resolve(
-                    lr_up, cfg_weight=cfg_weight, ddim_steps=ddim_steps
+                    lr_up, cfg_weight=cfg_weight, num_steps=num_steps
                 )
             else:
                 # Iterative: first image-only, then with text
-                sr_tensor = model.super_resolve(lr_up, cfg_weight=1.0, ddim_steps=ddim_steps)
+                sr_tensor = model.super_resolve(lr_up, cfg_weight=1.0, num_steps=num_steps)
 
                 # Re-run OCR on SR image
                 sr_np = _tensor_to_numpy(sr_tensor[0])
@@ -342,7 +342,7 @@ def batch_inference_from_lmdb(
                     lr_up,
                     texts=[ocr_text],
                     cfg_weight=cfg_weight,
-                    ddim_steps=ddim_steps,
+                    num_steps=num_steps,
                 )
 
         sr_np = _tensor_to_numpy(sr_tensor[0])
@@ -367,7 +367,7 @@ def batch_inference_from_lmdb(
 
 def main():
     parser = argparse.ArgumentParser(description="TextSR Inference")
-    parser.add_argument("--config", default="configs/textzoom_small.yaml")
+    parser.add_argument("--config", default="configs/textzoom_fm.yaml")
     parser.add_argument("--checkpoint", default=None, help="Model checkpoint path")
     # Single image mode
     parser.add_argument("--input", default=None, help="Input LR image path")
@@ -378,7 +378,7 @@ def main():
     # Inference settings
     parser.add_argument("--sr_factor", type=int, default=2)
     parser.add_argument("--cfg_weight", type=float, default=2.0, help="Text guidance scale ω")
-    parser.add_argument("--ddim_steps", type=int, default=5)
+    parser.add_argument("--num_steps", type=int, default=10, help="Euler ODE integration steps")
     parser.add_argument("--iter_rounds", type=int, default=1, help="R=0,1,2... OCR refinement rounds")
     parser.add_argument("--use_gpu", action="store_true")
     parser.add_argument("--blend_esrgan", action="store_true", help="Blend with Real-ESRGAN")
@@ -398,7 +398,7 @@ def main():
             output_path=output_path,
             sr_factor=args.sr_factor,
             cfg_weight=args.cfg_weight,
-            ddim_steps=args.ddim_steps,
+            num_steps=args.num_steps,
             iter_rounds=args.iter_rounds,
             use_ocr_gpu=args.use_gpu,
             device=device,
@@ -412,7 +412,7 @@ def main():
             output_dir=output_dir,
             sr_factor=args.sr_factor,
             cfg_weight=args.cfg_weight,
-            ddim_steps=args.ddim_steps,
+            num_steps=args.num_steps,
             iter_rounds=args.iter_rounds,
             use_ocr_gpu=args.use_gpu,
             device=device,
