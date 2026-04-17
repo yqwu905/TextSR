@@ -159,6 +159,7 @@ def train_epoch(
     dataloader,
     optimizer,
     scaler,
+    scheduler,
     ema: EMA,
     cfg,
     epoch: int,
@@ -209,6 +210,8 @@ def train_epoch(
                 [p for p in raw_model.parameters() if p.requires_grad], grad_clip
             )
             optimizer.step()
+
+        scheduler.step()
 
         # EMA update
         ema.update(raw_model)
@@ -311,12 +314,24 @@ def main():
         weight_decay=1e-4,
     )
 
-    # LR scheduler: cosine annealing
+    # LR scheduler: linear warmup then cosine annealing (per-step)
     total_steps = cfg.training.num_epochs * len(train_loader) // world_size
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    warmup_steps = min(cfg.training.get("warmup_steps", 1000), total_steps)
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
         optimizer,
-        T_max=total_steps,
+        start_factor=1e-6,
+        end_factor=1.0,
+        total_iters=warmup_steps,
+    )
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max(total_steps - warmup_steps, 1),
         eta_min=cfg.training.learning_rate * 0.1,
+    )
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_steps],
     )
 
     # Mixed precision scaler
@@ -362,6 +377,7 @@ def main():
             dataloader=train_loader,
             optimizer=optimizer,
             scaler=scaler,
+            scheduler=scheduler,
             ema=ema,
             cfg=cfg,
             epoch=epoch,
@@ -370,7 +386,6 @@ def main():
             world_size=world_size,
             writer=writer,
         )
-        scheduler.step()
 
         if is_main_process(rank):
             elapsed = time.time() - t0
