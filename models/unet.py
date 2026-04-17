@@ -357,6 +357,8 @@ class UNet(nn.Module):
             n_dec_blocks = self._num_res_blocks if level == 0 else self._num_res_blocks + 1
             for _ in range(n_dec_blocks):
                 skip = skips.pop()
+                if h.shape[2:] != skip.shape[2:]:
+                    h = F.interpolate(h, size=skip.shape[2:], mode="nearest")
                 h = torch.cat([h, skip], dim=1)
                 h = self.dec_res_blocks[dec_idx](h, t_emb)
                 attn = self.dec_attns[dec_idx]
