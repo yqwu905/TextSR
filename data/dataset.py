@@ -111,6 +111,16 @@ def ocr_image(img_np: np.ndarray, use_gpu: bool = False) -> str:
 # ---------------------------------------------------------------------------
 
 class LMDBReader:
+    # Key format templates: {n} is replaced by the 1-based index
+    # Tried in order until one resolves a valid lr key for idx=0
+    _KEY_FORMATS = [
+        ("image-{n:09d}-lr", "image-{n:09d}-hr", "label-{n:09d}"),  # TextZoom default
+        ("image-{n:06d}-lr", "image-{n:06d}-hr", "label-{n:06d}"),
+        ("image_{n:09d}_lr", "image_{n:09d}_hr", "label_{n:09d}"),
+        ("{n:09d}-lr",        "{n:09d}-hr",        "{n:09d}-label"),
+        ("{n}-lr",            "{n}-hr",            "{n}-label"),
+    ]
+
     def __init__(self, lmdb_path: str):
         self.env = lmdb.open(
             lmdb_path,
@@ -120,28 +130,47 @@ class LMDBReader:
             meminit=False,
         )
         with self.env.begin(write=False) as txn:
-            self.n_samples = txn.stat()["entries"]
-            # Check if dataset has label keys
-            self.has_labels = txn.get(b"label-000000001") is not None
+            n_entries = txn.stat()["entries"]
+            self._fmt_lr, self._fmt_hr, self._fmt_label = self._detect_format(txn)
+            self.has_labels = txn.get(self._fmt_label.format(n=1).encode()) is not None
+
+        keys_per_sample = 3 if self.has_labels else 2
+        self.n_samples = n_entries // keys_per_sample
+
+    @classmethod
+    def _detect_format(cls, txn):
+        for fmt_lr, fmt_hr, fmt_label in cls._KEY_FORMATS:
+            if txn.get(fmt_lr.format(n=1).encode()) is not None:
+                return fmt_lr, fmt_hr, fmt_label
+        # Unknown format: dump first 5 keys to help diagnose
+        keys = []
+        cur = txn.cursor()
+        for k, _ in cur:
+            keys.append(k)
+            if len(keys) >= 5:
+                break
+        raise RuntimeError(
+            f"Cannot detect LMDB key format. First keys: {[repr(k) for k in keys]}\n"
+            "Please report this so the key format can be added."
+        )
 
     def __len__(self):
-        # Each sample has lr + hr keys (+ optional label)
-        return self.n_samples // (3 if self.has_labels else 2)
+        return self.n_samples
 
     def get(self, idx: int) -> Dict:
-        key = f"{idx + 1:09d}"
+        n = idx + 1
         with self.env.begin(write=False) as txn:
-            lr_bytes = txn.get(f"image-{key}-lr".encode())
-            hr_bytes = txn.get(f"image-{key}-hr".encode())
-            label_bytes = txn.get(f"label-{key}".encode())
+            lr_bytes  = txn.get(self._fmt_lr.format(n=n).encode())
+            hr_bytes  = txn.get(self._fmt_hr.format(n=n).encode())
+            label_bytes = txn.get(self._fmt_label.format(n=n).encode())
 
         result = {}
         if lr_bytes is not None:
-            result["lr"] = bytes_to_pil(lr_bytes)
+            result["lr"] = bytes_to_pil(bytes(lr_bytes))
         if hr_bytes is not None:
-            result["hr"] = bytes_to_pil(hr_bytes)
+            result["hr"] = bytes_to_pil(bytes(hr_bytes))
         if label_bytes is not None:
-            result["label"] = label_bytes.decode("utf-8")
+            result["label"] = bytes(label_bytes).decode("utf-8")
         return result
 
 
