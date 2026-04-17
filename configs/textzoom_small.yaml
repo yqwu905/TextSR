@@ -6,7 +6,7 @@ data:
   ocr_annotation_dir: ./data/ocr_annotations
   train_hr_size: [48, 480]            # [H, W] - training HR crop size
   sr_factor: 2                        # super-resolution upscale factor
-  max_text_length: 64                 # max OCR text token length (bytes)
+  max_text_len: 64                    # max OCR text token length (bytes)
   ocr_backend: paddleocr              # ocr backend for text conditioning
   num_workers: 8
 
