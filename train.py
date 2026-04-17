@@ -172,8 +172,12 @@ def train_epoch(
     raw_model = model.module if hasattr(model, "module") else model
 
     log_interval = cfg.training.log_interval
-    use_fp16 = cfg.training.get("fp16", False)
+    precision = cfg.training.get("precision", "fp32")  # "fp32", "fp16", "bf16"
     grad_clip = cfg.training.get("grad_clip", 1.0)
+
+    autocast_dtype = {"fp16": torch.float16, "bf16": torch.bfloat16}.get(precision)
+    use_autocast = autocast_dtype is not None
+    use_scaler = precision == "fp16"  # bf16 has fp32 dynamic range, no scaler needed
 
     total_loss = 0.0
     n_batches = 0
@@ -186,17 +190,12 @@ def train_epoch(
         text_ids = batch["text_ids"].cuda(rank, non_blocking=True)
         text_mask = batch["text_mask"].cuda(rank, non_blocking=True)
 
-        # Normalize residual from [0,255] shift to [-1,1]
-        # Dataset stores residual as (HR - LR_up + 128) in [0,255] uint8
-        # then numpy_to_tensor converts to [-1,1]
-        # So residual tensor is in [-1,1] where 0 maps to 0 residual
-
         optimizer.zero_grad()
 
-        with torch.cuda.amp.autocast(enabled=use_fp16):
+        with torch.cuda.amp.autocast(enabled=use_autocast, dtype=autocast_dtype or torch.float16):
             loss = model(lr_up, residual, text_ids, text_mask)
 
-        if use_fp16:
+        if use_scaler:
             scaler.scale(loss).backward()
             scaler.unscale_(optimizer)
             nn.utils.clip_grad_norm_(
@@ -334,8 +333,9 @@ def main():
         milestones=[warmup_steps],
     )
 
-    # Mixed precision scaler
-    scaler = torch.cuda.amp.GradScaler(enabled=cfg.training.get("fp16", False))
+    # Mixed precision scaler (only needed for fp16, not bf16)
+    precision = cfg.training.get("precision", "fp32")
+    scaler = torch.cuda.amp.GradScaler(enabled=(precision == "fp16"))
 
     # WandB / TensorBoard
     writer = None
