@@ -178,10 +178,25 @@ def process_directory(
     device: torch.device = None,
     extensions: tuple = (".png", ".jpg", ".jpeg", ".bmp"),
 ):
-    """Process all images in a directory."""
+    """Process all images in a directory, or an LMDB directory (TextZoom format)."""
     input_dir = Path(input_dir)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
+
+    # Auto-detect LMDB: TextZoom stores images in data.mdb / lock.mdb
+    if (input_dir / "data.mdb").exists():
+        _process_lmdb(
+            model=model,
+            lmdb_dir=input_dir,
+            output_dir=output_dir,
+            sr_factor=sr_factor,
+            cfg_weight=cfg_weight,
+            ddim_steps=ddim_steps,
+            iter_rounds=iter_rounds,
+            use_ocr_gpu=use_ocr_gpu,
+            device=device,
+        )
+        return
 
     image_files = [
         f for f in sorted(input_dir.iterdir())
@@ -189,7 +204,7 @@ def process_directory(
     ]
 
     if not image_files:
-        print(f"[WARNING] No images found in {input_dir}")
+        print(f"[WARNING] No images found in {input_dir} (not an LMDB dir either)")
         return
 
     print(f"Processing {len(image_files)} images from {input_dir}")
@@ -208,6 +223,50 @@ def process_directory(
             use_ocr_gpu=use_ocr_gpu,
             device=device,
         )
+
+
+def _process_lmdb(
+    model: TextSR,
+    lmdb_dir: Path,
+    output_dir: Path,
+    sr_factor: int,
+    cfg_weight: float,
+    ddim_steps: int,
+    iter_rounds: int,
+    use_ocr_gpu: bool,
+    device: torch.device,
+):
+    """Read LR images from a TextZoom LMDB and write SR results as PNG files."""
+    from data.dataset import LMDBReader, pil_to_numpy
+
+    reader = LMDBReader(str(lmdb_dir))
+    n = len(reader)
+    print(f"Processing {n} samples from LMDB: {lmdb_dir}")
+    print(f"  SR factor: {sr_factor}×, CFG weight: {cfg_weight}, DDIM steps: {ddim_steps}, Iter rounds: {iter_rounds}")
+
+    def ocr_fn(img_np: np.ndarray) -> str:
+        return ocr_image(img_np, use_gpu=use_ocr_gpu)
+
+    for idx in tqdm(range(n), desc="Super-resolving"):
+        sample = reader.get(idx)
+        lr_pil = sample.get("lr")
+        if lr_pil is None:
+            continue
+
+        lr_np = pil_to_numpy(lr_pil)
+
+        sr_np = model.super_resolve_iterative(
+            lr_np=lr_np,
+            ocr_fn=ocr_fn,
+            sr_factor=sr_factor,
+            cfg_weight=cfg_weight,
+            ddim_steps=ddim_steps,
+            num_rounds=iter_rounds,
+            device=device,
+        )
+
+        out_path = output_dir / f"{idx:06d}.png"
+        cv2.imwrite(str(out_path), cv2.cvtColor(sr_np, cv2.COLOR_RGB2BGR))
 
 
 def batch_inference_from_lmdb(
