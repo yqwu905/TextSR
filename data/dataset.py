@@ -114,7 +114,8 @@ class LMDBReader:
     # Key format templates: {n} is replaced by the 1-based index
     # Tried in order until one resolves a valid lr key for idx=0
     _KEY_FORMATS = [
-        ("image-{n:09d}-lr", "image-{n:09d}-hr", "label-{n:09d}"),  # TextZoom default
+        ("image_lr-{n:09d}", "image_hr-{n:09d}", "label-{n:09d}"),   # actual TextZoom format
+        ("image-{n:09d}-lr", "image-{n:09d}-hr", "label-{n:09d}"),
         ("image-{n:06d}-lr", "image-{n:06d}-hr", "label-{n:06d}"),
         ("image_{n:09d}_lr", "image_{n:09d}_hr", "label_{n:09d}"),
         ("{n:09d}-lr",        "{n:09d}-hr",        "{n:09d}-label"),
