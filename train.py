@@ -280,8 +280,8 @@ def main():
         sr_factor=cfg.data.sr_factor,
         max_text_len=cfg.data.max_text_len,
         text_drop_prob=cfg.training.get("text_drop_prob", 0.1),
-        use_synthetic_lr=True,
-        num_degrade_rounds=5,   # reduced from paper's 20 for speed
+        use_synthetic_lr=False,  # use real TextZoom LR/HR pairs, not synthetic degradation
+        num_degrade_rounds=5,
         ocr_cache_dir=cfg.data.get("ocr_annotation_dir", None),
         tokenizer=tokenizer,
     )

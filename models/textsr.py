@@ -169,11 +169,17 @@ class TextSR(nn.Module):
         B, C, H, W = lr_up.shape
         device = lr_up.device
 
-        # Encode text if provided
+        # Null text embedding for CFG uncond pass and image-only SR.
+        # Must match training: during text_drop_prob, text was tokenized as "" (empty string),
+        # so cross-attention always ran (never skipped). Using the same null encoding here
+        # ensures the unconditioned forward pass is in-distribution.
+        null_emb, null_mask = self.encode_text([""] * B, device)
+
+        # Encode text if provided; otherwise fall back to null (image-only SR)
         if texts is not None:
             text_emb, text_mask = self.encode_text(texts, device)
         else:
-            text_emb, text_mask = None, None
+            text_emb, text_mask = null_emb, null_mask
 
         # DDIM sampling
         residual_pred = self.diffusion.ddim_sample(
@@ -182,6 +188,8 @@ class TextSR(nn.Module):
             image_cond=lr_up,
             text_emb=text_emb,
             text_mask=text_mask,
+            null_text_emb=null_emb,
+            null_text_mask=null_mask,
             cfg_weight=cfg_weight,
             num_steps=ddim_steps,
             eta=eta,

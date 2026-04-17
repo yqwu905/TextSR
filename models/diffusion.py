@@ -191,6 +191,8 @@ class GaussianDiffusion(nn.Module):
         image_cond: torch.Tensor,                  # (B, 3, H, W) LR upsampled
         text_emb: Optional[torch.Tensor] = None,   # (B, L, D) text embeddings
         text_mask: Optional[torch.Tensor] = None,
+        null_text_emb: Optional[torch.Tensor] = None,  # (B, L, D) null text for CFG uncond pass
+        null_text_mask: Optional[torch.Tensor] = None,
         cfg_weight: float = 2.0,                   # ω in paper
         num_steps: int = 5,
         eta: float = 0.0,                          # 0 = deterministic DDIM
@@ -237,14 +239,17 @@ class GaussianDiffusion(nn.Module):
 
             if text_emb is not None and cfg_weight != 1.0:
                 # Dual-condition CFG: run model twice
-                # 1) Image-only: text_emb = None
-                noise_uncond = model(model_input, t_tensor, None, None)
-                # 2) Image + text
+                # Unconditioned pass uses null text embeddings (matching training distribution
+                # where text_drop_prob dropped text → null ByT5 embedding, NOT skipped attn)
+                uncond_emb = null_text_emb if null_text_emb is not None else text_emb
+                uncond_mask = null_text_mask if null_text_mask is not None else text_mask
+                noise_uncond = model(model_input, t_tensor, uncond_emb, uncond_mask)
+                # Conditioned pass: image + text
                 noise_text = model(model_input, t_tensor, text_emb, text_mask)
-                # CFG combination
+                # CFG combination: ε̃ = (1-ω)·ε_uncond + ω·ε_text
                 noise_pred = (1 - cfg_weight) * noise_uncond + cfg_weight * noise_text
             else:
-                # Single forward pass (no CFG or already image-only)
+                # Single forward pass (no CFG or image-only)
                 noise_pred = model(model_input, t_tensor, text_emb, text_mask)
 
             # --- DDIM update step ---
