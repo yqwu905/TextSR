@@ -19,21 +19,23 @@ model:
   text_embed_dim: 1536
   max_text_len: 64
 
-  # U-Net velocity predictor (same architecture as DDPM version)
+  # U-Net velocity predictor
+  # base_channels=64: bottleneck 512ch vs 256ch with 32. Small-scale diffusion
+  # models typically need ≥64 base channels to fit the residual mapping.
   unet:
     in_channels: 6                    # 3 (x_t) + 3 (LR upsampled)
     out_channels: 3                   # predicted velocity
-    base_channels: 32
-    channel_mult: [1, 2, 4, 8, 8]
+    base_channels: 64
+    channel_mult: [1, 2, 4, 8, 8]    # channels: [64,128,256,512,512]
     num_res_blocks: 2
     attention_levels: [3, 4]
     cross_attention_dim: 256
     dropout: 0.0
-    time_embed_dim: 256
+    time_embed_dim: 512               # match larger base channels
 
   # Flow Matching (replaces diffusion block)
   flow_matching:
-    num_steps: 10                     # Euler ODE steps at inference
+    num_steps: 20                     # Euler ODE steps at inference (more → fewer artifacts)
 
 training:
   batch_size: 16
@@ -53,7 +55,7 @@ training:
   image_drop_prob: 0.0
 
 inference:
-  num_steps: 10                       # Euler ODE steps
+  num_steps: 20                       # Euler ODE steps
   cfg_weight: 2.0
   iterative_ocr_rounds: 1
   output_dir: ./outputs_fm/inference
